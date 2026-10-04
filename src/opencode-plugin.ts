@@ -3,7 +3,8 @@ import net from 'node:net'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
-import type { Plugin, PluginModule } from '@opencode-ai/plugin'
+import type { Plugin as V1Plugin, PluginModule } from '@opencode-ai/plugin'
+import { Plugin as V2Plugin } from '@opencode/plugin'
 import { DEFAULT_CONFIG } from './router/types.js'
 import { setPluginMode, logToFile } from './logging/logger.js'
 import { getRuntimePaths, isProcessAlive, readPidState } from './runtime/daemon.js'
@@ -261,7 +262,7 @@ async function ensureRouterDaemon(): Promise<'reused' | 'started' | 'failed'> {
   }
 }
 
-const OpenCodeGoMultiAuthPlugin: Plugin = async ({ client }) => {
+const OpenCodeGoMultiAuthPlugin: V1Plugin = async ({ client }) => {
   setPluginMode(true)
   const status = await ensureRouterDaemon()
 
@@ -289,4 +290,19 @@ export const pluginModule: PluginModule = {
   id: 'opencode-go-multi-auth',
   server: OpenCodeGoMultiAuthPlugin,
 }
-export default OpenCodeGoMultiAuthPlugin
+
+// OpenCode V2 requires a definition object ({ id, setup }) as the default
+// export; the V1 server() is kept on the same object so one build serves both
+// loaders (V1 >= 1.18.29 and V2). See docs: opencode.ai/v2/docs/build/plugins/migrate-v1
+export default {
+  ...V2Plugin.define({
+    id: 'opencode-go-multi-auth',
+    async setup() {
+      setPluginMode(true)
+      const status = await ensureRouterDaemon()
+      console.log(`[opencode-go-multi-auth] router daemon ${status}.`)
+      // The shared daemon intentionally outlives the plugin; no cleanup.
+    },
+  }),
+  server: OpenCodeGoMultiAuthPlugin,
+}

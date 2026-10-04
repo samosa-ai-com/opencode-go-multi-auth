@@ -79,7 +79,7 @@ Click any screenshot to view full resolution.
 
 - **Node.js** >= 22 (required by transitive dependencies)
 - **npm** or **bun** or **pnpm**
-- **OpenCode CLI** installed and configured with a Go subscription (Zen is optional but recommended)
+- **OpenCode CLI** >= 1.18.29 (for OpenCode V1) or OpenCode V2 (required for dual-entrypoint plugin support), configured with a Go subscription (Zen is optional but recommended)
 
 ## Installation
 

@@ -1,5 +1,4 @@
 export { createRouter } from './router/index.js'
-export { default as OpenCodeGoMultiAuthPlugin, server as OpenCodeGoMultiAuthPluginServer } from './opencode-plugin.js'
 export { ProxyServer } from './proxy/server.js'
 export { KeyManager } from './router/key-manager.js'
 export { CircuitBreaker } from './router/circuit-breaker.js'
