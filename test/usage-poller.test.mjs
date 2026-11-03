@@ -11,6 +11,7 @@ function snapshot(usedPercent) {
     rolling: { usedPercent, status: 'ok', resetsAt: null },
     weekly: null,
     monthly: null,
+    supported: true,
   }
 }
 
@@ -88,6 +89,7 @@ test('merges a partial payload without erasing known windows', async () => {
           rolling: { usedPercent: 10, status: 'ok', resetsAt: null },
           weekly: { usedPercent: 20, status: 'ok', resetsAt: null },
           monthly: { usedPercent: 30, status: 'ok', resetsAt: null },
+          supported: true,
         }
       }
       return snapshot(50)

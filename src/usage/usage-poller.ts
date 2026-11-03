@@ -44,7 +44,8 @@ export class UsagePoller {
 
   loadUsage(keyId: string, usage: KeyUsage | null | undefined): void {
     if (usage && typeof usage.fetchedAt === 'string') {
-      this.usage.set(keyId, usage)
+      // State files written before the flag existed mean "supported".
+      this.usage.set(keyId, { ...usage, supported: usage.supported !== false })
     }
   }
 
@@ -77,11 +78,12 @@ export class UsagePoller {
       const previous = this.usage.get(key.id)
       // A partial payload must not erase a window that was known before.
       const usage: KeyUsage = {
-        rolling: snapshot.rolling ?? previous?.rolling ?? null,
-        weekly: snapshot.weekly ?? previous?.weekly ?? null,
-        monthly: snapshot.monthly ?? previous?.monthly ?? null,
+        rolling: snapshot.supported ? (snapshot.rolling ?? previous?.rolling ?? null) : null,
+        weekly: snapshot.supported ? (snapshot.weekly ?? previous?.weekly ?? null) : null,
+        monthly: snapshot.supported ? (snapshot.monthly ?? previous?.monthly ?? null) : null,
         fetchedAt: new Date().toISOString(),
         error: null,
+        supported: snapshot.supported,
       }
       this.usage.set(key.id, usage)
       this.onChange?.()
@@ -96,6 +98,7 @@ export class UsagePoller {
         // Epoch marks "never fetched successfully"; windows stay empty in that case.
         fetchedAt: previous?.fetchedAt ?? new Date(0).toISOString(),
         error: error instanceof Error ? error.message : String(error),
+        supported: previous?.supported ?? true,
       }
       this.usage.set(key.id, usage)
       this.onChange?.()

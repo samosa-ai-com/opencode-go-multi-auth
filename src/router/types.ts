@@ -20,6 +20,7 @@ export type KeyUsage = {
   monthly: UsageWindow | null
   fetchedAt: string
   error: string | null
+  supported: boolean
 }
 
 export interface ApiKey {

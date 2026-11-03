@@ -1,6 +1,6 @@
 import type { KeyUsage, UsageWindow } from '../router/types.js'
 
-export type UsageSnapshot = Pick<KeyUsage, 'rolling' | 'weekly' | 'monthly'>
+export type UsageSnapshot = Pick<KeyUsage, 'rolling' | 'weekly' | 'monthly' | 'supported'>
 
 const DEFAULT_TIMEOUT_MS = 10_000
 const MAX_ERROR_LENGTH = 200
@@ -52,20 +52,30 @@ function redactKeys(value: string): string {
   return value.replace(/\b(?:oc_sk_|sk-)[A-Za-z0-9_-]+/g, '[redacted]')
 }
 
-function describeErrorBody(body: string): string {
-  if (!body.trim()) return ''
+interface UpstreamError {
+  type: string
+  message: string
+}
+
+function parseErrorBody(body: string): UpstreamError | null {
+  if (!body.trim()) return null
   try {
     const root = asRecord(JSON.parse(body) as unknown)
     const error = root ? asRecord(root.error) : null
-    if (!error) return ''
+    if (!error) return null
 
     // Only the structured error fields are surfaced; the raw body is never kept.
-    const type = typeof error.type === 'string' ? redactKeys(error.type) : ''
-    const message = typeof error.message === 'string' ? redactKeys(error.message) : ''
-    return [type, message].filter(Boolean).join(': ')
+    return {
+      type: typeof error.type === 'string' ? redactKeys(error.type) : '',
+      message: typeof error.message === 'string' ? redactKeys(error.message) : '',
+    }
   } catch {
-    return ''
+    return null
   }
+}
+
+function unsupportedSnapshot(): UsageSnapshot {
+  return { rolling: null, weekly: null, monthly: null, supported: false }
 }
 
 export class UsageClient {
@@ -95,8 +105,17 @@ export class UsageClient {
 
       if (!response.ok) {
         const body = await response.text().catch(() => '')
-        const detail = describeErrorBody(body).slice(0, MAX_ERROR_LENGTH)
-        const suffix = detail ? `: ${detail}` : ''
+        const upstreamError = parseErrorBody(body)
+        // Zen keys and custom upstreams have no Go usage endpoint; this is a
+        // permanent "not supported" answer, not a transient failure.
+        if (response.status === 404 || (response.status === 403 && upstreamError?.type === 'EntitlementError')) {
+          return unsupportedSnapshot()
+        }
+
+        const detail = upstreamError
+          ? [upstreamError.type, upstreamError.message].filter(Boolean).join(': ')
+          : ''
+        const suffix = detail ? `: ${detail.slice(0, MAX_ERROR_LENGTH)}` : ''
         throw new Error(`Usage endpoint returned HTTP ${response.status}${suffix}`.slice(0, MAX_ERROR_LENGTH))
       }
 
@@ -113,6 +132,7 @@ export class UsageClient {
         rolling: parseWindow(usage.rolling, now),
         weekly: parseWindow(usage.weekly, now),
         monthly: parseWindow(usage.monthly, now),
+        supported: true,
       }
     } catch (error) {
       const aborted = controller.signal.aborted

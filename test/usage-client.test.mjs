@@ -35,6 +35,7 @@ test('parses a normal usage payload', async () => {
       rolling: { usedPercent: 12, status: 'ok', resetsAt: '2026-08-22T19:00:00.000Z' },
       weekly: { usedPercent: 34, status: 'ok', resetsAt: '2026-08-25T00:00:00.000Z' },
       monthly: { usedPercent: 100, status: 'rate-limited', resetsAt: '2026-09-01T00:00:00.000Z' },
+      supported: true,
     })
   })
 })
@@ -93,15 +94,33 @@ test('clamps out-of-range percentages', async () => {
   })
 })
 
-test('reports HTTP status and upstream error detail', async () => {
+test('treats 403 EntitlementError as unsupported', async () => {
   const body = JSON.stringify({
     error: { type: 'EntitlementError', message: 'no Go subscription for this account' },
   })
 
   await withServer({ status: 403, body }, async (client) => {
+    const usage = await client.fetchUsage('zen-key')
+    assert.deepEqual(usage, { rolling: null, weekly: null, monthly: null, supported: false })
+  })
+})
+
+test('treats 404 as unsupported', async () => {
+  await withServer({ status: 404, body: '' }, async (client) => {
+    const usage = await client.fetchUsage('custom-key')
+    assert.deepEqual(usage, { rolling: null, weekly: null, monthly: null, supported: false })
+  })
+})
+
+test('still reports HTTP status and upstream error detail for 401', async () => {
+  const body = JSON.stringify({
+    error: { type: 'AuthError', message: 'invalid API key' },
+  })
+
+  await withServer({ status: 401, body }, async (client) => {
     await assert.rejects(client.fetchUsage('bad-key'), (error) => {
-      assert.match(error.message, /403/)
-      assert.match(error.message, /EntitlementError/)
+      assert.match(error.message, /401/)
+      assert.match(error.message, /AuthError/)
       assert.ok(error.message.length <= 200)
       return true
     })

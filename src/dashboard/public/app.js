@@ -856,6 +856,9 @@ function renderLimitRow(label, win) {
 
 function renderLimits(key) {
   const usage = key.usage;
+  if (usage && usage.supported === false && !usage.error) {
+    return `<div class="limits-block"><div class="limits-empty">Limits not available for this key</div></div>`;
+  }
   const anyWindow = usage ? LIMIT_ROWS.some((row) => usage[row.key]) : false;
   if (!usage || (!anyWindow && !usage.error)) {
     return `<div class="limits-block"><div class="limits-empty">No limit data yet</div></div>`;
