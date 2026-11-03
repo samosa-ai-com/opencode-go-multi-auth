@@ -8,6 +8,21 @@ export interface QuotaErrorSignal {
   message: string
 }
 
+export type UsageWindow = {
+  usedPercent: number
+  status: string
+  resetsAt: string | null
+}
+
+export type KeyUsage = {
+  rolling: UsageWindow | null
+  weekly: UsageWindow | null
+  monthly: UsageWindow | null
+  fetchedAt: string
+  error: string | null
+  supported: boolean
+}
+
 export interface ApiKey {
   id: string
   key: string
@@ -86,6 +101,7 @@ export interface RouterConfig {
   upstreamHungTimeoutMs: number
   keepAliveTimeoutMs: number
   headersTimeoutMs: number
+  usagePollMs: number
 }
 
 export const ROUTING_STRATEGIES: RoutingStrategyInfo[] = [
@@ -156,6 +172,7 @@ export const DEFAULT_CONFIG: RouterConfig = {
   upstreamHungTimeoutMs: 0,
   keepAliveTimeoutMs: 5 * 60 * 1000,
   headersTimeoutMs: 60 * 1000,
+  usagePollMs: 60 * 1000,
 }
 
 export enum CircuitState {

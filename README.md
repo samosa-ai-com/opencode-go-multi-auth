@@ -299,6 +299,10 @@ The dashboard is organized into seven pages:
 6. **Models** — Browse the combined model catalog from both upstreams. Select which models show in the token charts. A drift banner lists free Zen models the upstream offers that are not in your `opencode.json` and provides a "Copy snippet" button to paste them in.
 7. **Settings** — Active config (ports, strategy, total tokens observed, total observed cost, quota errors caught), the notification URL (ntfy.sh), the notification log, and the provider config snippet to copy into `~/.config/opencode/opencode.json`.
 
+### Per-key usage limits
+
+Each account card on the Accounts page shows the upstream-reported 5-hour, weekly, and monthly percent used, plus the next reset time. The data comes from `GET {upstream}/usage`, an undocumented endpoint that may change or disappear; it is display-only and never affects routing, which still reacts to upstream 402/429 responses. The polling interval is controlled by `USAGE_POLL_MS` (default 60000 ms, `0` disables, minimum effective 15000). A failed poll keeps the last good values and shows the error, while keys without a Go entitlement show a muted "Limits not available for this key".
+
 ## Configuration
 
 ### Environment variables
@@ -317,6 +321,7 @@ Set these in your shell or service file. The app reads from `process.env` — it
 | `NTFY_URL` | — | Optional ntfy URL for push notifications (e.g., `https://ntfy.sh/mytopic`). Leave empty to disable. |
 | `REQUEST_TIMEOUT_MS` | `0` | Wall-clock cap on the upstream HTTP round-trip in ms. `0` = disabled, matching OpenCode's no-timeout default for the opencode-go provider. |
 | `UPSTREAM_HUNG_TIMEOUT_MS` | `0` | Safety net that aborts the upstream fetch if no response is received at all within this window. `0` = disabled. Cleared as soon as the upstream starts sending bytes. |
+| `USAGE_POLL_MS` | `60000` | How often each key's usage limits are polled from the upstream `/usage` endpoint, in ms. `0` disables polling; the minimum effective interval is 15000. Display-only. |
 
 ### Ports
 

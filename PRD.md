@@ -50,6 +50,7 @@ A lightweight embedded Node server (e.g., Express or Fastify) serving a local we
 * **Key Management:** Secure form to manually add/remove OpenCode Go API keys.
 * **Strategy Selector:** Dropdown to instantly change the active routing strategy.
 * **Status Ledger:** Visual indicator of account health, quota remaining, and cooldown status.
+* **Per-Key Limits:** Show upstream-reported 5h/weekly/monthly used percentages and reset times per key. Display-only and resilient to keys without a usage endpoint.
 * **Log Viewer:** Real-time feed of local logs.
 
 ### 3.5. Secure API Key Storage
