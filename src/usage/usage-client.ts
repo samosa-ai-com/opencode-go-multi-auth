@@ -37,33 +37,34 @@ function parseWindow(value: unknown, now: number): UsageWindow | null {
   if (!raw) return null
 
   const usedPercent = parsePercent(raw.percent ?? raw.usedPercent)
-  if (usedPercent === null) return null
+  const status = typeof raw.status === 'string' ? raw.status : ''
+  // Keep a status-only window so the dashboard can still show "rate-limited".
+  if (usedPercent === null && !status) return null
 
   return {
-    usedPercent,
-    status: typeof raw.status === 'string' ? raw.status : 'unknown',
+    usedPercent: usedPercent ?? 0,
+    status: status || 'unknown',
     resetsAt: parseResetsAt(raw, now),
   }
+}
+
+function redactKeys(value: string): string {
+  return value.replace(/\b(?:oc_sk_|sk-)[A-Za-z0-9_-]+/g, '[redacted]')
 }
 
 function describeErrorBody(body: string): string {
   if (!body.trim()) return ''
   try {
     const root = asRecord(JSON.parse(body) as unknown)
-    if (!root) return body
+    const error = root ? asRecord(root.error) : null
+    if (!error) return ''
 
-    const error = asRecord(root.error)
-    if (error) {
-      const type = typeof error.type === 'string' ? error.type : ''
-      const message = typeof error.message === 'string' ? error.message : ''
-      const detail = [type, message].filter(Boolean).join(': ')
-      if (detail) return detail
-    }
-    if (typeof root.error === 'string' && root.error.trim()) return root.error
-    if (typeof root.message === 'string') return root.message
-    return body
+    // Only the structured error fields are surfaced; the raw body is never kept.
+    const type = typeof error.type === 'string' ? redactKeys(error.type) : ''
+    const message = typeof error.message === 'string' ? redactKeys(error.message) : ''
+    return [type, message].filter(Boolean).join(': ')
   } catch {
-    return body
+    return ''
   }
 }
 
@@ -114,7 +115,10 @@ export class UsageClient {
         monthly: parseWindow(usage.monthly, now),
       }
     } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
+      const aborted = controller.signal.aborted
+        || (typeof error === 'object' && error !== null
+          && 'name' in error && String((error as { name?: unknown }).name) === 'AbortError')
+      if (aborted) {
         throw new Error(`Usage request timed out after ${this.timeoutMs}ms`)
       }
       throw error

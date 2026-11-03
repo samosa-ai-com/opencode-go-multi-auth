@@ -422,7 +422,7 @@ export class DashboardServer {
       costAccumulated: quota.costAccumulated,
       quotaErrorCount: key.quotaErrorCount,
       lastQuotaError: key.lastQuotaError,
-      usage: this.usagePoller.getUsage(key.alias),
+      usage: this.usagePoller.getUsage(key.id),
       quota,
       recentUsage: {
         last7d,

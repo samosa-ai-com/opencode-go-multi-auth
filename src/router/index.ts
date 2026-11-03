@@ -77,11 +77,12 @@ export async function createRouter(
   let usagePoller!: UsagePoller
   let persistTimer: NodeJS.Timeout | undefined
   let persistReady = false
+  let lastUsagePersistAt = 0
 
-  const exportKeysWithUsage = () => keyManager.exportRuntimeState().map((entry) => {
-    const key = keyManager.getKeyById(entry.id)
-    return { ...entry, usage: key ? usagePoller.getUsage(key.alias) : null }
-  })
+  const exportKeysWithUsage = () => keyManager.exportRuntimeState().map((entry) => ({
+    ...entry,
+    usage: usagePoller.getUsage(entry.id),
+  }))
 
   const persistRuntimeState = () => {
     if (!persistReady) return
@@ -93,6 +94,15 @@ export async function createRouter(
         logs: logStream.export(),
       })
     }, 100)
+  }
+
+  // Usage polls must not rewrite the full state (including the log ring) every
+  // minute per key; one usage write per minute is enough for persistence.
+  const persistUsageState = () => {
+    const now = Date.now()
+    if (now - lastUsagePersistAt < 60_000) return
+    lastUsagePersistAt = now
+    persistRuntimeState()
   }
 
   logStream = new LogStream(persistRuntimeState)
@@ -113,11 +123,10 @@ export async function createRouter(
   usagePoller = new UsagePoller(new UsageClient(mergedConfig.upstreamUrl), {
     intervalMs: mergedConfig.usagePollMs,
     getKeys: () => keyManager.getKeys(),
-    onChange: persistRuntimeState,
+    onChange: persistUsageState,
   })
   for (const entry of runtimeState.keys) {
-    const key = keyManager.getKeyById(entry.id)
-    if (key) usagePoller.loadUsage(key.alias, entry.usage)
+    usagePoller.loadUsage(entry.id, entry.usage)
   }
   persistReady = true
 

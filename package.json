@@ -28,6 +28,7 @@
     "dev": "tsx watch src/bin.ts",
     "build": "node node_modules/typescript/lib/tsc.js && cp -r src/dashboard/public/. dist/dashboard/public/",
     "start": "node dist/bin.js",
+    "test": "node --test \"test/**/*.test.mjs\"",
     "typecheck": "node node_modules/typescript/lib/tsc.js --noEmit",
     "clean": "rm -rf dist"
   },

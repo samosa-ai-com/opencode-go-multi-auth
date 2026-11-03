@@ -5,11 +5,14 @@ const DEFAULT_INTERVAL_MS = 60_000
 const MIN_INTERVAL_MS = 15_000
 const MAX_BACKOFF_MS = 10 * 60_000
 const FIRST_POLL_STAGGER_MS = 2_000
+const KEY_SYNC_INTERVAL_MS = 5_000
 
 export interface UsagePollerOptions {
   intervalMs?: number
   getKeys: () => ApiKey[]
   onChange?: () => void
+  syncIntervalMs?: number
+  staggerMs?: number
 }
 
 interface KeySchedule {
@@ -22,8 +25,11 @@ export class UsagePoller {
   private readonly intervalMs: number
   private readonly getKeys: () => ApiKey[]
   private readonly onChange?: () => void
+  private readonly syncIntervalMs: number
+  private readonly staggerMs: number
   private readonly usage = new Map<string, KeyUsage>()
   private readonly schedules = new Map<string, KeySchedule>()
+  private syncTimer: NodeJS.Timeout | null = null
   private started = false
 
   constructor(client: UsageClient, options: UsagePollerOptions) {
@@ -32,46 +38,57 @@ export class UsagePoller {
     this.intervalMs = requested > 0 ? Math.max(MIN_INTERVAL_MS, Math.floor(requested)) : 0
     this.getKeys = options.getKeys
     this.onChange = options.onChange
+    this.syncIntervalMs = Math.max(1, Math.floor(options.syncIntervalMs ?? KEY_SYNC_INTERVAL_MS))
+    this.staggerMs = Math.max(0, Math.floor(options.staggerMs ?? FIRST_POLL_STAGGER_MS))
   }
 
-  loadUsage(alias: string, usage: KeyUsage | null | undefined): void {
+  loadUsage(keyId: string, usage: KeyUsage | null | undefined): void {
     if (usage && typeof usage.fetchedAt === 'string') {
-      this.usage.set(alias, usage)
+      this.usage.set(keyId, usage)
     }
   }
 
   start(): void {
     if (this.started || this.intervalMs === 0) return
     this.started = true
-    this.getKeys().forEach((key, index) => this.schedule(key, index * FIRST_POLL_STAGGER_MS))
+    this.getKeys().forEach((key, index) => this.schedule(key, index * this.staggerMs))
+    // New keys can appear after boot (dashboard add); sync independently of polls
+    // so a router started with zero keys still starts polling them.
+    this.syncTimer = setInterval(() => this.syncKeys(), this.syncIntervalMs)
   }
 
   stop(): void {
     this.started = false
+    if (this.syncTimer) clearInterval(this.syncTimer)
+    this.syncTimer = null
     for (const schedule of this.schedules.values()) {
       if (schedule.timer) clearTimeout(schedule.timer)
     }
     this.schedules.clear()
   }
 
-  getUsage(keyAlias: string): KeyUsage | null {
-    return this.usage.get(keyAlias) ?? null
+  getUsage(keyId: string): KeyUsage | null {
+    return this.usage.get(keyId) ?? null
   }
 
   async pollKey(key: ApiKey): Promise<KeyUsage> {
     try {
       const snapshot = await this.client.fetchUsage(key.key)
+      const previous = this.usage.get(key.id)
+      // A partial payload must not erase a window that was known before.
       const usage: KeyUsage = {
-        ...snapshot,
+        rolling: snapshot.rolling ?? previous?.rolling ?? null,
+        weekly: snapshot.weekly ?? previous?.weekly ?? null,
+        monthly: snapshot.monthly ?? previous?.monthly ?? null,
         fetchedAt: new Date().toISOString(),
         error: null,
       }
-      this.usage.set(key.alias, usage)
+      this.usage.set(key.id, usage)
       this.onChange?.()
       return usage
     } catch (error) {
       // Keep the last good windows; only the error marker changes.
-      const previous = this.usage.get(key.alias)
+      const previous = this.usage.get(key.id)
       const usage: KeyUsage = {
         rolling: previous?.rolling ?? null,
         weekly: previous?.weekly ?? null,
@@ -80,7 +97,7 @@ export class UsagePoller {
         fetchedAt: previous?.fetchedAt ?? new Date(0).toISOString(),
         error: error instanceof Error ? error.message : String(error),
       }
-      this.usage.set(key.alias, usage)
+      this.usage.set(key.id, usage)
       this.onChange?.()
       return usage
     }
@@ -89,10 +106,10 @@ export class UsagePoller {
   private schedule(key: ApiKey, delayMs: number): void {
     if (!this.started) return
 
-    let schedule = this.schedules.get(key.alias)
+    let schedule = this.schedules.get(key.id)
     if (!schedule) {
       schedule = { timer: null, failures: 0 }
-      this.schedules.set(key.alias, schedule)
+      this.schedules.set(key.id, schedule)
     }
     if (schedule.timer) clearTimeout(schedule.timer)
 
@@ -111,7 +128,6 @@ export class UsagePoller {
       if (!this.started) return
       schedule.failures = usage.error ? schedule.failures + 1 : 0
       this.schedule(key, this.nextDelay(schedule.failures))
-      this.syncKeys()
     } catch {
       // pollKey converts fetch errors into KeyUsage.error; this guards the timer
       // against anything unexpected so it can never become an unhandled rejection.
@@ -122,17 +138,19 @@ export class UsagePoller {
   }
 
   private syncKeys(): void {
+    if (!this.started) return
+
     const keys = this.getKeys()
-    const aliases = new Set(keys.map((key) => key.alias))
-    for (const [alias, schedule] of this.schedules) {
-      if (!aliases.has(alias)) {
+    const ids = new Set(keys.map((key) => key.id))
+    for (const [id, schedule] of this.schedules) {
+      if (!ids.has(id)) {
         if (schedule.timer) clearTimeout(schedule.timer)
-        this.schedules.delete(alias)
+        this.schedules.delete(id)
       }
     }
     for (const key of keys) {
-      if (!this.schedules.has(key.alias)) {
-        this.schedule(key, FIRST_POLL_STAGGER_MS)
+      if (!this.schedules.has(key.id)) {
+        this.schedule(key, this.staggerMs)
       }
     }
   }

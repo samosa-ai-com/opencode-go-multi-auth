@@ -45,6 +45,35 @@ const fmtCooldown = (ms) => {
   const h = Math.floor(m / 60);
   return `${h}h ${m % 60}m`;
 };
+const pad2 = (n) => String(n).padStart(2, '0');
+const fmtAgo = (iso) => {
+  const t = iso ? new Date(iso).getTime() : NaN;
+  if (!Number.isFinite(t)) return '';
+  const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  return h < 24 ? `${h}h ago` : `${Math.floor(h / 24)}d ago`;
+};
+const fmtResetAt = (iso) => {
+  const t = iso ? new Date(iso).getTime() : NaN;
+  if (!Number.isFinite(t)) return '';
+  const remaining = t - Date.now();
+  if (remaining <= 0) return '';
+  if (remaining >= 24 * 60 * 60 * 1000) {
+    const d = new Date(t);
+    return `resets ${pad2(d.getDate())}.${pad2(d.getMonth() + 1)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  }
+  const m = Math.ceil(remaining / 60000);
+  const h = Math.floor(m / 60);
+  return `resets in ${h > 0 ? `${h}h ${m % 60}m` : `${m}m`}`;
+};
+const clampPercent = (v) => {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.min(100, Math.max(0, n));
+};
 const debounce = (fn, ms) => {
   let t;
   return (...args) => {
@@ -789,7 +818,71 @@ function renderAccounts() {
     return;
   }
   host.innerHTML = state.keys.map(renderAccountCard).join('');
+  fillUsageErrors(host);
   initAccountCardHandlers(host);
+}
+
+const LIMIT_ROWS = [
+  { label: '5h', key: 'rolling' },
+  { label: '7d', key: 'weekly' },
+  { label: '30d', key: 'monthly' },
+];
+
+function renderLimitRow(label, win) {
+  if (!win) {
+    return `
+      <div class="limit-row">
+        <span class="limit-label">${label}</span>
+        <div class="limit-bar"><div class="limit-bar-fill" style="width:0%"></div></div>
+        <span class="limit-text">—</span>
+      </div>`;
+  }
+  const pct = clampPercent(win.usedPercent);
+  const tone = pct < 70 ? 'is-green' : pct < 90 ? 'is-amber' : 'is-red';
+  const reset = fmtResetAt(win.resetsAt);
+  const limited = String(win.status ?? '') === 'rate-limited'
+    ? '<span class="chip chip-red limit-chip">rate-limited</span>' : '';
+  return `
+    <div class="limit-row">
+      <span class="limit-label">${label}</span>
+      <div class="limit-bar" role="progressbar" aria-label="${label} usage" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(pct)}">
+        <div class="limit-bar-fill ${tone}" style="width:${pct}%"></div>
+      </div>
+      <span class="limit-text"><span>${Math.round(pct)}%${reset ? ` · ${reset}` : ''}</span>${limited}</span>
+    </div>`;
+}
+
+function renderLimits(key) {
+  const usage = key.usage;
+  const anyWindow = usage ? LIMIT_ROWS.some((row) => usage[row.key]) : false;
+  if (!usage || (!anyWindow && !usage.error)) {
+    return `<div class="limits-block"><div class="limits-empty">No limit data yet</div></div>`;
+  }
+  const rows = anyWindow
+    ? LIMIT_ROWS.map((row) => renderLimitRow(row.label, usage[row.key])).join('') : '';
+  const fetchedAt = usage.fetchedAt ? new Date(usage.fetchedAt).getTime() : NaN;
+  const fetchedFresh = Number.isFinite(fetchedAt) && fetchedAt > 0
+    && Date.now() - fetchedAt <= 365 * 24 * 60 * 60 * 1000;
+  const updated = fetchedFresh ? `updated ${fmtAgo(usage.fetchedAt)}` : '';
+  const error = usage.error
+    ? `<span class="limits-error" data-usage-error="${escapeHtml(key.id)}"></span>` : '';
+  const footer = updated || error
+    ? `<div class="limits-footer">${updated}${updated && error ? ' · ' : ''}${error}</div>`
+    : '';
+  return `
+    <div class="limits-block">
+      <div class="limits-title">Limits</div>
+      ${rows}
+      ${footer}
+    </div>`;
+}
+
+function fillUsageErrors(host) {
+  $$('[data-usage-error]', host).forEach((el) => {
+    const key = state.keys.find((k) => k.id === el.dataset.usageError);
+    const message = key?.usage?.error;
+    if (message) el.textContent = `last refresh failed: ${message}`;
+  });
 }
 
 function renderAccountCard(key) {
@@ -881,6 +974,7 @@ function renderAccountCard(key) {
           <button class="btn btn-sm btn-danger" data-action="remove" data-id="${key.id}">Remove</button>
         </div>
       </div>
+      ${renderLimits(key)}
     </article>
   `;
 }
