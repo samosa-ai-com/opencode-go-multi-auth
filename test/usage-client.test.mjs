@@ -112,6 +112,20 @@ test('treats 404 as unsupported', async () => {
   })
 })
 
+test('still throws for a 403 that is not EntitlementError', async () => {
+  const body = JSON.stringify({
+    error: { type: 'RateLimitError', message: 'too many requests' },
+  })
+
+  await withServer({ status: 403, body }, async (client) => {
+    await assert.rejects(client.fetchUsage('rate-limited-key'), (error) => {
+      assert.match(error.message, /403/)
+      assert.match(error.message, /RateLimitError/)
+      return true
+    })
+  })
+})
+
 test('still reports HTTP status and upstream error detail for 401', async () => {
   const body = JSON.stringify({
     error: { type: 'AuthError', message: 'invalid API key' },

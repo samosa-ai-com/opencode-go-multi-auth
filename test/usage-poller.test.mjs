@@ -19,6 +19,10 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+function flush() {
+  return new Promise((resolve) => setImmediate(resolve))
+}
+
 async function waitFor(predicate, timeoutMs = 1000) {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
@@ -109,4 +113,58 @@ test('merges a partial payload without erasing known windows', async () => {
   assert.equal(usage.weekly.usedPercent, 20)
   assert.equal(usage.monthly.usedPercent, 30)
   assert.equal(usage.error, null)
+})
+
+test('loads legacy persisted usage without supported as supported', () => {
+  const client = {
+    async fetchUsage() {
+      throw new Error('unused')
+    },
+  }
+  const poller = new UsagePoller(client, {
+    getKeys: () => [],
+    intervalMs: 15_000,
+  })
+
+  poller.loadUsage('id-legacy', {
+    rolling: null,
+    weekly: null,
+    monthly: null,
+    fetchedAt: '2026-01-01T00:00:00.000Z',
+    error: null,
+  })
+
+  assert.equal(poller.getUsage('id-legacy').supported, true)
+})
+
+test('keeps polling an unsupported key on the normal interval', async (t) => {
+  const calls = []
+  const key = makeKey('id-unsupported', 'Zen')
+  const client = {
+    async fetchUsage(apiKey) {
+      calls.push(apiKey)
+      return { rolling: null, weekly: null, monthly: null, supported: false }
+    },
+  }
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
+  const poller = new UsagePoller(client, {
+    getKeys: () => [key],
+    intervalMs: 15_000,
+    syncIntervalMs: 5_000,
+    staggerMs: 0,
+  })
+
+  try {
+    poller.start()
+    t.mock.timers.tick(0)
+    await flush()
+    assert.equal(calls.length, 1)
+    assert.equal(poller.getUsage(key.id).supported, false)
+
+    t.mock.timers.tick(15_000)
+    await flush()
+    assert.equal(calls.length, 2)
+  } finally {
+    poller.stop()
+  }
 })
