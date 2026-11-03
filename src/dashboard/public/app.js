@@ -834,7 +834,8 @@ function renderLimitRow(label, win) {
       <div class="limit-row">
         <span class="limit-label">${label}</span>
         <div class="limit-bar"><div class="limit-bar-fill" style="width:0%"></div></div>
-        <span class="limit-text">—</span>
+        <span class="limit-pct">—</span>
+        <span class="limit-reset"></span>
       </div>`;
   }
   const pct = clampPercent(win.usedPercent);
@@ -848,7 +849,8 @@ function renderLimitRow(label, win) {
       <div class="limit-bar" role="progressbar" aria-label="${label} usage" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(pct)}">
         <div class="limit-bar-fill ${tone}" style="width:${pct}%"></div>
       </div>
-      <span class="limit-text"><span>${Math.round(pct)}%${reset ? ` · ${reset}` : ''}</span>${limited}</span>
+      <span class="limit-pct">${Math.round(pct)}%</span>
+      <span class="limit-reset">${reset ? `<span>${reset}</span>` : ''}${limited}</span>
     </div>`;
 }
 
