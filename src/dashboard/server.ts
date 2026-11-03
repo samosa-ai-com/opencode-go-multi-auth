@@ -13,6 +13,7 @@ import { SecureStore } from '../storage/secure-store.js'
 import { ConfigStore } from '../storage/config-store.js'
 import { NtfyNotifier } from '../notification/ntfy.js'
 import { OpenCodeUsageStore } from '../storage/opencode-usage-store.js'
+import type { UsagePoller } from '../usage/usage-poller.js'
 import {
   RoutingStrategy,
   ROUTING_STRATEGIES,
@@ -67,6 +68,7 @@ export class DashboardServer {
     private secureStore: SecureStore,
     private configStore: ConfigStore,
     private notifier: NtfyNotifier,
+    private usagePoller: UsagePoller,
   ) {
     this.port = port
     this.openCodeUsageStore = new OpenCodeUsageStore()
@@ -420,6 +422,7 @@ export class DashboardServer {
       costAccumulated: quota.costAccumulated,
       quotaErrorCount: key.quotaErrorCount,
       lastQuotaError: key.lastQuotaError,
+      usage: this.usagePoller.getUsage(key.alias),
       quota,
       recentUsage: {
         last7d,

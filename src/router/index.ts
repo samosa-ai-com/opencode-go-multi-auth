@@ -10,6 +10,8 @@ import { ConfigStore } from '../storage/config-store.js'
 import { RuntimeStateStore } from '../storage/runtime-state-store.js'
 import { NtfyNotifier } from '../notification/ntfy.js'
 import { printSetupInstructions } from '../plugin/index.js'
+import { UsageClient } from '../usage/usage-client.js'
+import { UsagePoller } from '../usage/usage-poller.js'
 import type { RouterConfig } from './types.js'
 import { DEFAULT_CONFIG, normalizeRoutingStrategy } from './types.js'
 
@@ -23,6 +25,7 @@ export interface RouterInstance {
   configStore: ConfigStore
   secureStore: SecureStore
   notifier: NtfyNotifier
+  usagePoller: UsagePoller
   shutdown: () => Promise<void>
 }
 
@@ -52,6 +55,7 @@ function loadEnvConfig(): Partial<RouterConfig> {
     upstreamHungTimeoutMs: readPositiveInt(process.env.UPSTREAM_HUNG_TIMEOUT_MS, DEFAULT_CONFIG.upstreamHungTimeoutMs),
     keepAliveTimeoutMs: readPositiveInt(process.env.KEEP_ALIVE_TIMEOUT_MS, DEFAULT_CONFIG.keepAliveTimeoutMs),
     headersTimeoutMs: readPositiveInt(process.env.HEADERS_TIMEOUT_MS, DEFAULT_CONFIG.headersTimeoutMs),
+    usagePollMs: readPositiveInt(process.env.USAGE_POLL_MS, DEFAULT_CONFIG.usagePollMs),
   }
 }
 
@@ -70,15 +74,21 @@ export async function createRouter(
   let keyManager!: KeyManager
   let quotaTracker!: QuotaTracker
   let logStream!: LogStream
+  let usagePoller!: UsagePoller
   let persistTimer: NodeJS.Timeout | undefined
   let persistReady = false
+
+  const exportKeysWithUsage = () => keyManager.exportRuntimeState().map((entry) => {
+    const key = keyManager.getKeyById(entry.id)
+    return { ...entry, usage: key ? usagePoller.getUsage(key.alias) : null }
+  })
 
   const persistRuntimeState = () => {
     if (!persistReady) return
     if (persistTimer) clearTimeout(persistTimer)
     persistTimer = setTimeout(() => {
       runtimeStateStore.save({
-        keys: keyManager.exportRuntimeState(),
+        keys: exportKeysWithUsage(),
         quota: quotaTracker.exportState(),
         logs: logStream.export(),
       })
@@ -99,6 +109,16 @@ export async function createRouter(
   keyManager.loadRuntimeState(runtimeState.keys)
   quotaTracker.loadState(runtimeState.quota)
   logStream.load(runtimeState.logs)
+
+  usagePoller = new UsagePoller(new UsageClient(mergedConfig.upstreamUrl), {
+    intervalMs: mergedConfig.usagePollMs,
+    getKeys: () => keyManager.getKeys(),
+    onChange: persistRuntimeState,
+  })
+  for (const entry of runtimeState.keys) {
+    const key = keyManager.getKeyById(entry.id)
+    if (key) usagePoller.loadUsage(key.alias, entry.usage)
+  }
   persistReady = true
 
   const notifier = new NtfyNotifier(mergedConfig.ntfyUrl)
@@ -137,11 +157,13 @@ export async function createRouter(
     secureStore,
     configStore,
     notifier,
+    usagePoller,
   )
 
   await proxyServer.start()
   const httpServer = await dashboardServer.start()
   logStream.attach(httpServer)
+  usagePoller.start()
 
   logStream.emit(logger, 'info', `Dashboard UI: http://localhost:${mergedConfig.dashboardPort}`)
   logStream.emit(logger, 'info', `Proxy server: http://localhost:${mergedConfig.proxyPort}`)
@@ -162,14 +184,18 @@ export async function createRouter(
     configStore,
     secureStore,
     notifier,
+    usagePoller,
     shutdown: async () => {
       logStream.emit(logger, 'info', 'Shutting down...')
+      usagePoller.stop()
       if (persistTimer) clearTimeout(persistTimer)
       runtimeStateStore.save({
-        keys: keyManager.exportRuntimeState(),
+        keys: exportKeysWithUsage(),
         quota: quotaTracker.exportState(),
         logs: logStream.export(),
       })
+      // A poll still in flight must not schedule another write during shutdown.
+      persistReady = false
       await proxyServer.stop()
       await dashboardServer.stop()
       logStream.stop()

@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import type { KeyUsage } from '../router/types.js'
 
 export interface StoredUsageLogEntry {
   timestamp: number
@@ -49,6 +50,8 @@ export interface StoredKeyRuntimeState {
   lastStatusCode: number | null
   lastModel: string | null
   lastSessionId: string | null
+  // Absent in state files written before usage polling existed.
+  usage?: KeyUsage | null
 }
 
 export interface StoredLogEntry {
